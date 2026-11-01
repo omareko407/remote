@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">المساعد عن بُعد (Remote Support)</string>
+    <string name="accessibility_service_name">خدمة المساعدة والتحكم عن بُعد</string>
+    <string name="accessibility_service_description">تُستخدم هذه الخدمة حصرياً لتلقي أوامر اللمس والمساعدة الفنية عن بُعد بموافقتك الكاملة والصريحة، ولن يتم استخدامها إلا أثناء جلسة نشطة ومعلنة.</string>
+    
+    <!-- Security Warning Text -->
+    <string name="security_warning_title">⚠️ تنبيه أمني هام جداً</string>
+    <string name="security_warning_body">يتيح هذا التطبيق مشاركة شاشتك والتحكم في هاتفك عن بُعد لتقديم الدعم الفني والمساعدة. لا تشارك كود جهازك ولا تمنح الأذونات إلا لجهة موثوقة تماماً. يمكنك إيقاف التحكم فوراً في أي وقت بالضغط على زر إيقاف المشاركة.</string>
+    
+    <!-- Buttons & Labels -->
+    <string name="perm_accessibility_title">1. إذن إمكانية الوصول (Accessibility)</string>
+    <string name="perm_accessibility_desc">مطلوب للسماح بمحاكاة اللمس والتنقل.</string>
+    <string name="btn_enable_accessibility">تفعيل الإذن في الإعدادات</string>
+    <string name="perm_granted">تم التفعيل ✅</string>
+    
+    <string name="perm_screen_title">2. إذن تسجيل وبث الشاشة</string>
+    <string name="perm_screen_desc">مطلوب لنقل محتوى الشاشة إلى لوحة الدعم.</string>
+    <string name="btn_grant_screen">منح إذن الشاشة</string>
+
+    <string name="device_id_label">معرّف جهازك الفريد (Device ID):</string>
+    <string name="server_url_label">عنوان الخادم (Signaling Server):</string>
+    <string name="btn_start_service">بدء مشاركة الشاشة والدعم 🟢</string>
+    <string name="btn_stop_service">قطع الاتصال وإيقاف الجلسة 🔴</string>
+    <string name="status_ready">مستعد للاتصال</string>
+    <string name="status_connected">متصل بالخادم وجاهز للمساعدة</string>
+    <string name="status_streaming">الشاشة قيد البث والتحكم حالياً ⚠️</string>
+</resources>
