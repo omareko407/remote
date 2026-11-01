@@ -28,7 +28,15 @@ jobs:
       run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
     - name: Build Debug APK
-      run: gradle assembleDebug --stacktrace --no-daemon
+      run: |
+        gradle assembleDebug --stacktrace --no-daemon 2>&1 | tee build_output.log
+
+    - name: Upload Build Log Artifact (Always)
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: gradle-build-log
+        path: build_output.log
 
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
