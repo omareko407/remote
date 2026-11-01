@@ -3,8 +3,7 @@ package com.remotesupport.app
 import android.app.*
 import android.content.Context
 import android.content.Intent
-import android.media.projection.MediaProjection
-import android.media.projection.MediaProjectionManager
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
@@ -25,8 +24,6 @@ class ScreenCaptureService : Service() {
             private set
     }
 
-    private var mediaProjection: MediaProjection? = null
-
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -44,22 +41,22 @@ class ScreenCaptureService : Service() {
         }
 
         if (action == ACTION_START) {
-            val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, Activity.RESULT_CANCELED)
             val resultData: Intent? = intent.getParcelableExtra(EXTRA_RESULT_DATA)
             val serverUrl = intent.getStringExtra(EXTRA_SERVER_URL) ?: "http://192.168.1.100:3000"
             val deviceId = intent.getStringExtra(EXTRA_DEVICE_ID) ?: "PHONE-DEFAULT"
 
-            startForeground(NOTIFICATION_ID, buildNotification())
+            val notification = buildNotification()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
             isRunning = true
 
             if (resultData != null) {
-                val mpManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-                mediaProjection = mpManager.getMediaProjection(resultCode, resultData)
-
-                // Initialize WebRTC and Signaling connection
                 WebRtcManager.instance.initialize(
                     context = applicationContext,
-                    mediaProjection = mediaProjection!!,
+                    screenCaptureIntent = resultData,
                     serverUrl = serverUrl,
                     deviceId = deviceId
                 )
@@ -72,8 +69,6 @@ class ScreenCaptureService : Service() {
     private fun stopStream() {
         isRunning = false
         WebRtcManager.instance.disconnect()
-        mediaProjection?.stop()
-        mediaProjection = null
         stopForeground(true)
     }
 

@@ -44,6 +44,6 @@ dependencies {
         exclude group: 'org.json', module: 'json'
     }
 
-    // Official WebRTC SDK for Android
-    implementation 'io.github.webrtc-sdk:android:121.6167.01'
+    // Official WebRTC SDK for Android (from Maven Central)
+    implementation 'io.dyte:webrtc-android:0.120.2'
 }

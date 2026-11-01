@@ -1,6 +1,7 @@
 package com.remotesupport.app
 
 import android.content.Context
+import android.content.Intent
 import android.media.projection.MediaProjection
 import android.os.Handler
 import android.os.Looper
@@ -28,7 +29,7 @@ class WebRtcManager private constructor() {
 
     fun initialize(
         context: Context,
-        mediaProjection: MediaProjection,
+        screenCaptureIntent: Intent,
         serverUrl: String,
         deviceId: String
     ) {
@@ -51,9 +52,8 @@ class WebRtcManager private constructor() {
             .createPeerConnectionFactory()
 
         // 2. Setup Screen Capturer
-        val metrics = context.resources.displayMetrics
         val surfaceTextureHelper = SurfaceTextureHelper.create("ScreenCaptureThread", eglBase.eglBaseContext)
-        videoCapturer = ScreenCapturerAndroid(mediaProjection, object : MediaProjection.Callback() {
+        videoCapturer = ScreenCapturerAndroid(screenCaptureIntent, object : MediaProjection.Callback() {
             override fun onStop() {
                 Log.w(TAG, "MediaProjection Stopped by system.")
             }
