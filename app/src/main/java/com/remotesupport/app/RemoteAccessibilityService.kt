@@ -4,7 +4,6 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.graphics.Path
 import android.os.Build
-import android.util.DisplayMetrics
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 
@@ -51,7 +50,7 @@ class RemoteAccessibilityService : AccessibilityService() {
             moveTo(actualX, actualY)
         }
 
-        val stroke = GestureDescription.StrokeDescription(clickPath, 0, 50)
+        val stroke = GestureDescription.StrokeDescription(clickPath, 0L, 50L)
         val gesture = GestureDescription.Builder().addStroke(stroke).build()
 
         dispatchGesture(gesture, object : GestureResultCallback() {
@@ -86,7 +85,7 @@ class RemoteAccessibilityService : AccessibilityService() {
             lineTo(x2, y2)
         }
 
-        val stroke = GestureDescription.StrokeDescription(swipePath, 0, durationMs.coerceIn(100, 1000))
+        val stroke = GestureDescription.StrokeDescription(swipePath, 0L, durationMs.coerceIn(100L, 1000L))
         val gesture = GestureDescription.Builder().addStroke(stroke).build()
 
         dispatchGesture(gesture, null, null)
