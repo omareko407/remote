@@ -36,6 +36,13 @@ jobs:
       if: always()
       run: cat build_output.log
 
+    - name: Upload Build Log Artifact
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: build-failure-log
+        path: build_output.log
+
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
       if: success()
