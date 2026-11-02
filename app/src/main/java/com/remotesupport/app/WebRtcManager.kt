@@ -76,6 +76,9 @@ class WebRtcManager private constructor() {
             try {
                 Log.i(TAG, "Initializing WebRTC & Audio connecting to $serverUrl")
 
+                // 1. Connect to Signaling Server immediately so device is visible in Dashboard
+                connectSignaling(serverUrl, deviceId)
+
                 // Configure Speakerphone Routing for Voice
                 val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
                 audioManager?.mode = android.media.AudioManager.MODE_IN_COMMUNICATION
@@ -155,32 +158,52 @@ class WebRtcManager private constructor() {
                 }
 
                 videoTrack = peerConnectionFactory!!.createVideoTrack("ARDAMSv0", videoSource)
-
-                // 3. Connect to Signaling Server via Socket.IO
-                connectSignaling(serverUrl, deviceId)
             } catch (t: Throwable) {
                 Log.e(TAG, "Error in WebRTC initialization", t)
             }
         }
     }
 
+    private fun formatServerUrl(input: String?): String {
+        var url = (input ?: "").trim()
+        if (url.isEmpty()) return "http://192.168.0.102:3000"
+        if (url.contains("192.168.0.107")) {
+            url = url.replace("192.168.0.107", "192.168.0.102")
+        }
+        if (!url.startsWith("http://") && !url.startsWith("https://")) {
+            url = "http://$url"
+        }
+        val parts = url.substringAfter("://").split("/")
+        val hostPort = parts[0]
+        if (!hostPort.contains(":")) {
+            val remainingPath = if (parts.size > 1) "/" + parts.drop(1).joinToString("/") else ""
+            val scheme = if (url.startsWith("https://")) "https" else "http"
+            url = "$scheme://$hostPort:3000$remainingPath"
+        }
+        return url
+    }
+
     private fun connectSignaling(serverUrl: String, deviceId: String) {
+        val cleanUrl = formatServerUrl(serverUrl)
         try {
+            Log.i(TAG, "Connecting to Socket.IO signaling at $cleanUrl...")
             val options = IO.Options().apply {
                 reconnection = true
+                reconnectionAttempts = Int.MAX_VALUE
+                reconnectionDelay = 2000
                 timeout = 10000
             }
-            socket = IO.socket(serverUrl, options)
+            socket = IO.socket(cleanUrl, options)
             setupSocketListeners(deviceId)
             socket?.connect()
         } catch (e: Exception) {
-            Log.e(TAG, "Socket connection failed", e)
+            Log.e(TAG, "Socket connection failed to $cleanUrl", e)
         }
     }
 
     private fun setupSocketListeners(deviceId: String) {
         socket?.on(Socket.EVENT_CONNECT) {
-            Log.i(TAG, "Connected to Signaling Server! Registering device...")
+            Log.i(TAG, "Connected to Signaling Server! Registering device: $deviceId")
             try {
                 val regData = JSONObject().apply {
                     put("deviceId", deviceId)
@@ -191,6 +214,14 @@ class WebRtcManager private constructor() {
             } catch (e: Exception) {
                 Log.e(TAG, "Error registering device", e)
             }
+        }
+
+        socket?.on(Socket.EVENT_CONNECT_ERROR) { args ->
+            Log.e(TAG, "Socket.IO Connect Error: ${args.joinToString()}")
+        }
+
+        socket?.on(Socket.EVENT_DISCONNECT) { args ->
+            Log.w(TAG, "Socket.IO Disconnected: ${args.joinToString()}")
         }
 
         // Controller requested connection via WebRTC offer

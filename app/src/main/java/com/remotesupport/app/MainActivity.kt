@@ -24,7 +24,26 @@ class MainActivity : AppCompatActivity() {
         private const val PREFS_NAME = "ProfessorPrefs"
         private const val KEY_DEVICE_ID = "KEY_DEVICE_ID"
         private const val KEY_SERVER_URL = "KEY_SERVER_URL"
-        private const val DEFAULT_SERVER_URL = "http://192.168.0.107:3000"
+        private const val DEFAULT_SERVER_URL = "http://192.168.0.102:3000"
+
+        fun formatServerUrl(input: String?): String {
+            var url = (input ?: "").trim()
+            if (url.isEmpty()) return DEFAULT_SERVER_URL
+            if (url.contains("192.168.0.107")) {
+                url = url.replace("192.168.0.107", "192.168.0.102")
+            }
+            if (!url.startsWith("http://") && !url.startsWith("https://")) {
+                url = "http://$url"
+            }
+            val parts = url.substringAfter("://").split("/")
+            val hostPort = parts[0]
+            if (!hostPort.contains(":")) {
+                val remainingPath = if (parts.size > 1) "/" + parts.drop(1).joinToString("/") else ""
+                val scheme = if (url.startsWith("https://")) "https" else "http"
+                url = "$scheme://$hostPort:3000$remainingPath"
+            }
+            return url
+        }
     }
 
     private lateinit var tvDeviceId: TextView
@@ -40,6 +59,7 @@ class MainActivity : AppCompatActivity() {
     private var screenCaptureIntentData: Intent? = null
     private var screenCaptureResultCode: Int = Activity.RESULT_CANCELED
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var hasRequestedCaptureThisResume = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -58,7 +78,17 @@ class MainActivity : AppCompatActivity() {
         btnStop = findViewById(R.id.btnStop)
 
         tvDeviceId.text = deviceId
-        etServerUrl.setText(prefs.getString(KEY_SERVER_URL, DEFAULT_SERVER_URL))
+
+        // Handle URL migration and formatting
+        var savedUrl = prefs.getString(KEY_SERVER_URL, null)
+        if (savedUrl == null || savedUrl.contains("192.168.0.107")) {
+            savedUrl = DEFAULT_SERVER_URL
+            prefs.edit().putString(KEY_SERVER_URL, savedUrl).apply()
+        }
+        etServerUrl.setText(formatServerUrl(savedUrl))
+
+        // Ensure stop button is permanently hidden on the phone
+        btnStop.visibility = View.GONE
 
         setupListeners()
         showSecurityWarningDialogOnce()
@@ -66,8 +96,20 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        hasRequestedCaptureThisResume = false
+
+        // If the service is already running, minimize immediately to save battery & screen
+        if (ScreenCaptureService.isRunning) {
+            moveTaskToBack(true)
+            return
+        }
+
         updatePermissionStatus()
-        checkAutoConnect()
+
+        val hasSeenWarning = prefs.getBoolean("has_seen_security_warning", false)
+        if (hasSeenWarning) {
+            autoProgressSession()
+        }
     }
 
     private fun initDeviceId() {
@@ -88,8 +130,7 @@ class MainActivity : AppCompatActivity() {
 
         // 2. Request MediaProjection
         btnGrantScreen.setOnClickListener {
-            val mpManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-            startActivityForResult(mpManager.createScreenCaptureIntent(), REQUEST_MEDIA_PROJECTION)
+            requestScreenCapture()
         }
 
         // 3. Start Session manually
@@ -97,40 +138,45 @@ class MainActivity : AppCompatActivity() {
             startSessionIfReady()
         }
 
-        // 4. Stop Session
-        btnStop.setOnClickListener {
-            stopScreenCaptureService()
+        // 4. Stop Session is not needed on phone UI (controlled exclusively from PC)
+        btnStop.visibility = View.GONE
+    }
+
+    private fun requestScreenCapture() {
+        try {
+            val mpManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            startActivityForResult(mpManager.createScreenCaptureIntent(), REQUEST_MEDIA_PROJECTION)
+        } catch (e: Exception) {
+            Toast.makeText(this, "تعذر طلب إذن الشاشة: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 
-    private fun checkAutoConnect() {
-        // Auto-connect if both permissions are granted and not already streaming
-        if (RemoteAccessibilityService.isServiceRunning && screenCaptureIntentData != null && !ScreenCaptureService.isRunning) {
+    private fun autoProgressSession() {
+        // If accessibility is enabled but screen projection is not yet granted, auto-prompt projection dialog
+        if (RemoteAccessibilityService.isServiceRunning && screenCaptureIntentData == null && !hasRequestedCaptureThisResume) {
+            hasRequestedCaptureThisResume = true
+            requestScreenCapture()
+        } else if (screenCaptureIntentData != null && !ScreenCaptureService.isRunning) {
             startSessionIfReady()
         }
     }
 
     private fun startSessionIfReady() {
-        if (!RemoteAccessibilityService.isServiceRunning) {
-            Toast.makeText(this, "يرجى تفعيل إذن إمكانية الوصول أولاً للتحكم", Toast.LENGTH_SHORT).show()
-            return
-        }
-
         if (screenCaptureIntentData == null) {
-            Toast.makeText(this, "يرجى منح إذن تسجيل الشاشة أولاً", Toast.LENGTH_SHORT).show()
+            requestScreenCapture()
             return
         }
 
-        val serverUrl = etServerUrl.text.toString().trim()
-        if (serverUrl.isEmpty()) {
-            Toast.makeText(this, "يرجى كتابة عنوان الخادم", Toast.LENGTH_SHORT).show()
-            return
+        if (!RemoteAccessibilityService.isServiceRunning) {
+            Toast.makeText(this, "تنبيه: تحكم اللمس غير مفعل، سيعمل بث الشاشة فقط", Toast.LENGTH_SHORT).show()
         }
 
-        // Save server URL for future auto-connects
-        prefs.edit().putString(KEY_SERVER_URL, serverUrl).apply()
+        val rawUrl = etServerUrl.text.toString().trim()
+        val cleanUrl = formatServerUrl(rawUrl)
+        prefs.edit().putString(KEY_SERVER_URL, cleanUrl).apply()
+        etServerUrl.setText(cleanUrl)
 
-        startScreenCaptureService(serverUrl)
+        startScreenCaptureService(cleanUrl)
     }
 
     private fun startScreenCaptureService(serverUrl: String) {
@@ -153,31 +199,14 @@ class MainActivity : AppCompatActivity() {
             btnStop.visibility = View.GONE
             tvStatus.text = "التطبيق يعمل في الخلفية ⚡"
             tvStatus.setTextColor(getColor(R.color.success))
-            Toast.makeText(this, "تم بدء الخدمة، التطبيق يعمل في الخلفية لتوفير البطارية 🟢", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "تم بدء الخدمة، التطبيق يعمل في الخلفية 🟢", Toast.LENGTH_SHORT).show()
 
             // Minimize activity immediately to save screen rendering, CPU, and battery
             mainHandler.postDelayed({
                 moveTaskToBack(true)
-            }, 600L)
+            }, 300L)
         } catch (e: Exception) {
             Toast.makeText(this, "خطأ في بدء الخدمة: ${e.message}", Toast.LENGTH_LONG).show()
-        }
-    }
-
-    private fun stopScreenCaptureService() {
-        try {
-            val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
-                action = ScreenCaptureService.ACTION_STOP
-            }
-            startService(serviceIntent)
-
-            btnStart.visibility = View.VISIBLE
-            btnStop.visibility = View.GONE
-            tvStatus.text = getString(R.string.status_ready)
-            tvStatus.setTextColor(getColor(R.color.text_muted))
-            Toast.makeText(this, "تم قطع الاتصال بنجاح", Toast.LENGTH_SHORT).show()
-        } catch (e: Exception) {
-            Toast.makeText(this, "خطأ: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -189,8 +218,8 @@ class MainActivity : AppCompatActivity() {
                 screenCaptureIntentData = data
                 btnGrantScreen.text = getString(R.string.perm_granted)
                 btnGrantScreen.setBackgroundColor(getColor(R.color.success))
-                Toast.makeText(this, "تم منح إذن مشاركة الشاشة بنجاح", Toast.LENGTH_SHORT).show()
-                checkAutoConnect()
+                Toast.makeText(this, "تم منح إذن الشاشة بنجاح", Toast.LENGTH_SHORT).show()
+                startSessionIfReady()
             } else {
                 Toast.makeText(this, "تم رفض إذن مشاركة الشاشة", Toast.LENGTH_SHORT).show()
             }
@@ -204,6 +233,11 @@ class MainActivity : AppCompatActivity() {
         } else {
             btnEnableAccessibility.text = getString(R.string.btn_enable_accessibility)
             btnEnableAccessibility.setBackgroundColor(getColor(R.color.primary))
+        }
+
+        if (screenCaptureIntentData != null) {
+            btnGrantScreen.text = getString(R.string.perm_granted)
+            btnGrantScreen.setBackgroundColor(getColor(R.color.success))
         }
 
         if (ScreenCaptureService.isRunning) {
@@ -222,6 +256,7 @@ class MainActivity : AppCompatActivity() {
                 .setPositiveButton("موافق وأفهم ذلك") { dialog, _ ->
                     prefs.edit().putBoolean("has_seen_security_warning", true).apply()
                     dialog.dismiss()
+                    autoProgressSession()
                 }
                 .setNegativeButton("إلغاء وإغلاق") { _, _ ->
                     finish()
