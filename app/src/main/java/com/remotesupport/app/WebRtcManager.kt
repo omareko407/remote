@@ -28,8 +28,42 @@ class WebRtcManager private constructor() {
     private var audioDeviceModule: org.webrtc.audio.AudioDeviceModule? = null
     private var eglBase: EglBase? = null
     private var appContext: Context? = null
+    private var directAudioTrack: android.media.AudioTrack? = null
 
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    @Synchronized
+    private fun initDirectAudioTrack() {
+        try {
+            val sampleRate = 16000
+            val minBuf = android.media.AudioTrack.getMinBufferSize(
+                sampleRate,
+                android.media.AudioFormat.CHANNEL_OUT_MONO,
+                android.media.AudioFormat.ENCODING_PCM_16BIT
+            )
+            directAudioTrack = android.media.AudioTrack.Builder()
+                .setAudioAttributes(
+                    android.media.AudioAttributes.Builder()
+                        .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build()
+                )
+                .setAudioFormat(
+                    android.media.AudioFormat.Builder()
+                        .setEncoding(android.media.AudioFormat.ENCODING_PCM_16BIT)
+                        .setSampleRate(sampleRate)
+                        .setChannelMask(android.media.AudioFormat.CHANNEL_OUT_MONO)
+                        .build()
+                )
+                .setBufferSizeInBytes(minBuf * 4)
+                .setTransferMode(android.media.AudioTrack.MODE_STREAM)
+                .build()
+            directAudioTrack?.play()
+            Log.i(TAG, "Loudspeaker 16kHz PCM AudioTrack initialized and playing!")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error initializing direct Loudspeaker AudioTrack", e)
+        }
+    }
 
     fun initialize(
         context: Context,
@@ -185,8 +219,16 @@ class WebRtcManager private constructor() {
 
         socket?.on("session-ended") {
             mainHandler.post {
-                Log.i(TAG, "Session ended by controller.")
+                Log.i(TAG, "Session ended by controller. Shutting down capture to preserve battery.")
                 closePeerConnection()
+                try {
+                    val stopIntent = Intent(appContext, ScreenCaptureService::class.java).apply {
+                        action = ScreenCaptureService.ACTION_STOP
+                    }
+                    appContext?.startService(stopIntent)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error stopping ScreenCaptureService on session-ended", e)
+                }
             }
         }
     }
@@ -326,9 +368,29 @@ class WebRtcManager private constructor() {
     }
 
     /**
-     * Executes Touch, Navigation, and Text gestures on device UI
+     * Executes Touch, Navigation, Audio, and Text gestures on device UI
      */
     private fun handleControlAction(action: JSONObject) {
+        val type = action.optString("type")
+
+        // 1. Direct Loudspeaker Audio Intercom (Plays raw 16kHz PCM chunks directly)
+        if (type == "audio_chunk") {
+            val base64Data = action.optString("data")
+            if (base64Data.isNotEmpty()) {
+                try {
+                    if (directAudioTrack == null || directAudioTrack?.state != android.media.AudioTrack.STATE_INITIALIZED) {
+                        initDirectAudioTrack()
+                    }
+                    val pcmBytes = android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT)
+                    directAudioTrack?.write(pcmBytes, 0, pcmBytes.size)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error playing direct audio chunk on speaker", e)
+                }
+            }
+            return
+        }
+
+        // 2. Accessibility Actions (Tap, Swipe, Navigation Keys, Text)
         val service = RemoteAccessibilityService.instance
         if (service == null) {
             Log.w(TAG, "Cannot execute action: Accessibility Service is not enabled by user!")
@@ -337,7 +399,7 @@ class WebRtcManager private constructor() {
 
         mainHandler.post {
             try {
-                when (action.optString("type")) {
+                when (type) {
                     "tap" -> {
                         val x = action.optDouble("x", 0.5).toFloat()
                         val y = action.optDouble("y", 0.5).toFloat()
@@ -369,6 +431,11 @@ class WebRtcManager private constructor() {
     }
 
     private fun closePeerConnection() {
+        try {
+            directAudioTrack?.stop()
+            directAudioTrack?.release()
+            directAudioTrack = null
+        } catch (e: Exception) {}
         try {
             peerConnection?.close()
         } catch (e: Exception) {

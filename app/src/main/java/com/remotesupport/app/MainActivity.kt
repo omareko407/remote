@@ -39,6 +39,7 @@ class MainActivity : AppCompatActivity() {
     private var deviceId: String = ""
     private var screenCaptureIntentData: Intent? = null
     private var screenCaptureResultCode: Int = Activity.RESULT_CANCELED
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -149,10 +150,15 @@ class MainActivity : AppCompatActivity() {
             }
 
             btnStart.visibility = View.GONE
-            btnStop.visibility = View.VISIBLE
-            tvStatus.text = getString(R.string.status_streaming)
-            tvStatus.setTextColor(getColor(R.color.warning_border))
-            Toast.makeText(this, "تم الاتصال بالخادم وبدء البث بنجاح 🟢", Toast.LENGTH_SHORT).show()
+            btnStop.visibility = View.GONE
+            tvStatus.text = "التطبيق يعمل في الخلفية ⚡"
+            tvStatus.setTextColor(getColor(R.color.success))
+            Toast.makeText(this, "تم بدء الخدمة، التطبيق يعمل في الخلفية لتوفير البطارية 🟢", Toast.LENGTH_SHORT).show()
+
+            // Minimize activity immediately to save screen rendering, CPU, and battery
+            mainHandler.postDelayed({
+                moveTaskToBack(true)
+            }, 600L)
         } catch (e: Exception) {
             Toast.makeText(this, "خطأ في بدء الخدمة: ${e.message}", Toast.LENGTH_LONG).show()
         }
@@ -202,8 +208,8 @@ class MainActivity : AppCompatActivity() {
 
         if (ScreenCaptureService.isRunning) {
             btnStart.visibility = View.GONE
-            btnStop.visibility = View.VISIBLE
-            tvStatus.text = getString(R.string.status_streaming)
+            btnStop.visibility = View.GONE
+            tvStatus.text = "التطبيق يعمل في الخلفية 🟢"
         }
     }
 
