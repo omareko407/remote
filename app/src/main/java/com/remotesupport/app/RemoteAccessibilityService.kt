@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -134,6 +135,30 @@ class RemoteAccessibilityService : AccessibilityService() {
     }
 
     /**
+     * Wakes up the screen and automatically performs upward swipe to dismiss the lock screen
+     */
+    fun wakeUpAndUnlock() {
+        mainHandler.post {
+            try {
+                val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+                val wakeLock = powerManager.newWakeLock(
+                    PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP or PowerManager.ON_AFTER_RELEASE,
+                    "Professor:WakeLock"
+                )
+                wakeLock.acquire(3000L)
+                wakeLock.release()
+
+                // Swipe upwards to unlock / dismiss keyguard
+                mainHandler.postDelayed({
+                    performSwipe(0.5f, 0.85f, 0.5f, 0.2f, 300L)
+                }, 400L)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error waking screen", e)
+            }
+        }
+    }
+
+    /**
      * Executes standard system navigation actions & smart shortcuts
      */
     fun executeNavigationKey(keyName: String) {
@@ -144,6 +169,8 @@ class RemoteAccessibilityService : AccessibilityService() {
             "NOTIFICATIONS" -> performGlobalAction(GLOBAL_ACTION_NOTIFICATIONS)
             "QUICK_SETTINGS" -> performGlobalAction(GLOBAL_ACTION_QUICK_SETTINGS)
             "POWER_DIALOG" -> performGlobalAction(GLOBAL_ACTION_POWER_DIALOG)
+            "WAKE" -> wakeUpAndUnlock()
+            "UNLOCK" -> wakeUpAndUnlock()
             "LOCK" -> {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)
