@@ -23,7 +23,8 @@ class WebRtcManager private constructor() {
     private var peerConnection: PeerConnection? = null
     private var videoCapturer: VideoCapturer? = null
     private var videoTrack: VideoTrack? = null
-    private var localMediaStream: MediaStream? = null
+    private var videoSource: VideoSource? = null
+    private var eglBase: EglBase? = null
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -33,42 +34,59 @@ class WebRtcManager private constructor() {
         serverUrl: String,
         deviceId: String
     ) {
-        Log.i(TAG, "Initializing WebRTC & Socket.IO connecting to $serverUrl")
+        mainHandler.post {
+            try {
+                Log.i(TAG, "Initializing WebRTC & Socket.IO connecting to $serverUrl")
 
-        // 1. Initialize PeerConnectionFactory
-        PeerConnectionFactory.initialize(
-            PeerConnectionFactory.InitializationOptions.builder(context)
-                .setEnableInternalTracer(false)
-                .createInitializationOptions()
-        )
+                // 1. Initialize PeerConnectionFactory
+                PeerConnectionFactory.initialize(
+                    PeerConnectionFactory.InitializationOptions.builder(context)
+                        .setEnableInternalTracer(false)
+                        .createInitializationOptions()
+                )
 
-        val eglBase = EglBase.create()
-        val defaultVideoEncoderFactory = DefaultVideoEncoderFactory(eglBase.eglBaseContext, true, true)
-        val defaultVideoDecoderFactory = DefaultVideoDecoderFactory(eglBase.eglBaseContext)
+                eglBase = EglBase.create()
+                val defaultVideoEncoderFactory = DefaultVideoEncoderFactory(eglBase!!.eglBaseContext, true, true)
+                val defaultVideoDecoderFactory = DefaultVideoDecoderFactory(eglBase!!.eglBaseContext)
 
-        peerConnectionFactory = PeerConnectionFactory.builder()
-            .setVideoEncoderFactory(defaultVideoEncoderFactory)
-            .setVideoDecoderFactory(defaultVideoDecoderFactory)
-            .createPeerConnectionFactory()
+                peerConnectionFactory = PeerConnectionFactory.builder()
+                    .setVideoEncoderFactory(defaultVideoEncoderFactory)
+                    .setVideoDecoderFactory(defaultVideoDecoderFactory)
+                    .createPeerConnectionFactory()
 
-        // 2. Setup Screen Capturer
-        val surfaceTextureHelper = SurfaceTextureHelper.create("ScreenCaptureThread", eglBase.eglBaseContext)
-        videoCapturer = ScreenCapturerAndroid(screenCaptureIntent, object : MediaProjection.Callback() {
-            override fun onStop() {
-                Log.w(TAG, "MediaProjection Stopped by system.")
+                // 2. Setup Screen Capturer
+                val surfaceTextureHelper = SurfaceTextureHelper.create("ScreenCaptureThread", eglBase!!.eglBaseContext)
+                videoCapturer = ScreenCapturerAndroid(screenCaptureIntent, object : MediaProjection.Callback() {
+                    override fun onStop() {
+                        Log.w(TAG, "MediaProjection Stopped by system.")
+                    }
+                })
+
+                videoSource = peerConnectionFactory!!.createVideoSource(videoCapturer!!.isScreencast)
+                videoCapturer!!.initialize(surfaceTextureHelper, context, videoSource!!.capturerObserver)
+
+                // Calculate screen dimensions (even numbers)
+                val displayMetrics = context.resources.displayMetrics
+                var targetWidth = (displayMetrics.widthPixels / 2)
+                var targetHeight = (displayMetrics.heightPixels / 2)
+                if (targetWidth % 2 != 0) targetWidth -= 1
+                if (targetHeight % 2 != 0) targetHeight -= 1
+                targetWidth = targetWidth.coerceIn(360, 1080)
+                targetHeight = targetHeight.coerceIn(640, 2400)
+
+                videoCapturer!!.startCapture(targetWidth, targetHeight, 30)
+
+                videoTrack = peerConnectionFactory!!.createVideoTrack("ARDAMSv0", videoSource)
+
+                // 3. Connect to Signaling Server via Socket.IO
+                connectSignaling(serverUrl, deviceId)
+            } catch (t: Throwable) {
+                Log.e(TAG, "Error in WebRTC initialization", t)
             }
-        })
+        }
+    }
 
-        val videoSource = peerConnectionFactory!!.createVideoSource(videoCapturer!!.isScreencast)
-        videoCapturer!!.initialize(surfaceTextureHelper, context, videoSource.capturerObserver)
-        // 720p at 30fps for smooth, low-bandwidth streaming
-        videoCapturer!!.startCapture(720, 1280, 30)
-
-        videoTrack = peerConnectionFactory!!.createVideoTrack("ARDAMSv0", videoSource)
-        localMediaStream = peerConnectionFactory!!.createLocalMediaStream("ARDAMS")
-        localMediaStream!!.addTrack(videoTrack)
-
-        // 3. Connect to Signaling Server via Socket.IO
+    private fun connectSignaling(serverUrl: String, deviceId: String) {
         try {
             val options = IO.Options().apply {
                 reconnection = true
@@ -85,138 +103,191 @@ class WebRtcManager private constructor() {
     private fun setupSocketListeners(deviceId: String) {
         socket?.on(Socket.EVENT_CONNECT) {
             Log.i(TAG, "Connected to Signaling Server! Registering device...")
-            val regData = JSONObject().apply {
-                put("deviceId", deviceId)
-                put("deviceName", "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
-                put("osVersion", "Android ${android.os.Build.VERSION.RELEASE}")
+            try {
+                val regData = JSONObject().apply {
+                    put("deviceId", deviceId)
+                    put("deviceName", "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
+                    put("osVersion", "Android ${android.os.Build.VERSION.RELEASE}")
+                }
+                socket?.emit("register-device", regData)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error registering device", e)
             }
-            socket?.emit("register-device", regData)
         }
 
-        // Controller requested connection
+        // Controller requested connection via WebRTC offer
         socket?.on("signal-offer") { args ->
-            if (args.isNotEmpty()) {
-                val data = args[0] as JSONObject
-                val controllerId = data.getString("controllerId")
-                val offerObj = data.getJSONObject("offer")
-                val sdp = offerObj.getString("sdp")
+            mainHandler.post {
+                try {
+                    if (args.isNotEmpty()) {
+                        val data = args[0] as JSONObject
+                        val controllerId = data.getString("controllerId")
+                        val offerObj = data.getJSONObject("offer")
+                        val sdp = offerObj.getString("sdp")
 
-                handleIncomingOffer(controllerId, sdp)
+                        handleIncomingOffer(controllerId, sdp)
+                    }
+                } catch (t: Throwable) {
+                    Log.e(TAG, "Error handling signal-offer", t)
+                }
             }
         }
 
         // ICE Candidates exchange
         socket?.on("signal-ice") { args ->
-            if (args.isNotEmpty()) {
-                val data = args[0] as JSONObject
-                val candidateObj = data.getJSONObject("candidate")
-                val sdpMid = candidateObj.getString("sdpMid")
-                val sdpMLineIndex = candidateObj.getInt("sdpMLineIndex")
-                val sdpCandidate = candidateObj.getString("candidate")
+            mainHandler.post {
+                try {
+                    if (args.isNotEmpty()) {
+                        val data = args[0] as JSONObject
+                        val candidateObj = data.getJSONObject("candidate")
+                        val sdpMid = candidateObj.getString("sdpMid")
+                        val sdpMLineIndex = candidateObj.getInt("sdpMLineIndex")
+                        val sdpCandidate = candidateObj.getString("candidate")
 
-                val iceCandidate = IceCandidate(sdpMid, sdpMLineIndex, sdpCandidate)
-                peerConnection?.addIceCandidate(iceCandidate)
+                        val iceCandidate = IceCandidate(sdpMid, sdpMLineIndex, sdpCandidate)
+                        peerConnection?.addIceCandidate(iceCandidate)
+                    }
+                } catch (t: Throwable) {
+                    Log.e(TAG, "Error adding ICE candidate", t)
+                }
             }
         }
 
         // Receive Remote Control Actions (Tap, Swipe, Keys)
         socket?.on("remote-control-action") { args ->
-            if (args.isNotEmpty()) {
-                val action = args[0] as JSONObject
-                handleControlAction(action)
+            mainHandler.post {
+                try {
+                    if (args.isNotEmpty()) {
+                        val action = args[0] as JSONObject
+                        handleControlAction(action)
+                    }
+                } catch (t: Throwable) {
+                    Log.e(TAG, "Error parsing control action", t)
+                }
             }
         }
 
         socket?.on("session-ended") {
-            Log.i(TAG, "Session ended by controller.")
-            closePeerConnection()
+            mainHandler.post {
+                Log.i(TAG, "Session ended by controller.")
+                closePeerConnection()
+            }
         }
     }
 
     private fun handleIncomingOffer(controllerId: String, sdp: String) {
-        // Free Google STUN Servers
-        val iceServers = listOf(
-            PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
-            PeerConnection.IceServer.builder("stun:stun1.l.google.com:19302").createIceServer()
-        )
+        try {
+            closePeerConnection()
 
-        val rtcConfig = PeerConnection.RTCConfiguration(iceServers).apply {
-            sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
-        }
+            // Free Google STUN Servers
+            val iceServers = listOf(
+                PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
+                PeerConnection.IceServer.builder("stun:stun1.l.google.com:19302").createIceServer()
+            )
 
-        peerConnection = peerConnectionFactory?.createPeerConnection(rtcConfig, object : PeerConnection.Observer {
-            override fun onIceCandidate(candidate: IceCandidate?) {
-                if (candidate != null) {
-                    val iceData = JSONObject().apply {
-                        put("targetId", controllerId)
-                        put("candidate", JSONObject().apply {
-                            put("sdpMid", candidate.sdpMid)
-                            put("sdpMLineIndex", candidate.sdpMLineIndex)
-                            put("candidate", candidate.sdp)
-                        })
-                    }
-                    socket?.emit("signal-ice", iceData)
-                }
+            val rtcConfig = PeerConnection.RTCConfiguration(iceServers).apply {
+                sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
             }
 
-            override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>?) {}
-            override fun onSignalingChange(state: PeerConnection.SignalingState?) {}
-            override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) {}
-            override fun onIceConnectionReceivingChange(receiving: Boolean) {}
-            override fun onIceGatheringChange(state: PeerConnection.IceGatheringState?) {}
-            override fun onAddStream(stream: MediaStream?) {}
-            override fun onRemoveStream(stream: MediaStream?) {}
-            override fun onDataChannel(dataChannel: DataChannel?) {
-                dataChannel?.registerObserver(object : DataChannel.Observer {
-                    override fun onBufferedAmountChange(amount: Long) {}
-                    override fun onStateChange() {}
-                    override fun onMessage(buffer: DataChannel.Buffer?) {
-                        buffer?.let {
-                            val bytes = ByteArray(it.data.remaining())
-                            it.data.get(bytes)
-                            val message = String(bytes)
-                            try {
-                                handleControlAction(JSONObject(message))
-                            } catch (e: Exception) {
-                                Log.e(TAG, "Error parsing DataChannel action", e)
+            peerConnection = peerConnectionFactory?.createPeerConnection(rtcConfig, object : PeerConnection.Observer {
+                override fun onIceCandidate(candidate: IceCandidate?) {
+                    if (candidate != null) {
+                        try {
+                            val iceData = JSONObject().apply {
+                                put("targetId", controllerId)
+                                put("candidate", JSONObject().apply {
+                                    put("sdpMid", candidate.sdpMid)
+                                    put("sdpMLineIndex", candidate.sdpMLineIndex)
+                                    put("candidate", candidate.sdp)
+                                })
                             }
+                            socket?.emit("signal-ice", iceData)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error emitting ICE candidate", e)
                         }
                     }
-                })
-            }
-            override fun onRenegotiationNeeded() {}
-            override fun onAddTrack(receiver: RtpReceiver?, streams: Array<out MediaStream>?) {}
-        })
+                }
 
-        // Add Local Media Stream with Screen Video Track
-        if (localMediaStream != null) {
-            peerConnection?.addStream(localMediaStream)
-        }
-
-        // Set Remote Description (Offer)
-        val offerDesc = SessionDescription(SessionDescription.Type.OFFER, sdp)
-        peerConnection?.setRemoteDescription(object : SdpObserverAdapter() {
-            override fun onSetSuccess() {
-                // Create Answer
-                peerConnection?.createAnswer(object : SdpObserverAdapter() {
-                    override fun onCreateSuccess(answerDesc: SessionDescription?) {
-                        peerConnection?.setLocalDescription(object : SdpObserverAdapter() {
-                            override fun onSetSuccess() {
-                                // Send Answer to Controller
-                                val answerData = JSONObject().apply {
-                                    put("controllerId", controllerId)
-                                    put("answer", JSONObject().apply {
-                                        put("type", "answer")
-                                        put("sdp", answerDesc?.description)
-                                    })
+                override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>?) {}
+                override fun onSignalingChange(state: PeerConnection.SignalingState?) {}
+                override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) {
+                    Log.d(TAG, "IceConnectionState: $state")
+                }
+                override fun onIceConnectionReceivingChange(receiving: Boolean) {}
+                override fun onIceGatheringChange(state: PeerConnection.IceGatheringState?) {}
+                override fun onAddStream(stream: MediaStream?) {}
+                override fun onRemoveStream(stream: MediaStream?) {}
+                override fun onDataChannel(dataChannel: DataChannel?) {
+                    dataChannel?.registerObserver(object : DataChannel.Observer {
+                        override fun onBufferedAmountChange(amount: Long) {}
+                        override fun onStateChange() {}
+                        override fun onMessage(buffer: DataChannel.Buffer?) {
+                            buffer?.let {
+                                val bytes = ByteArray(it.data.remaining())
+                                it.data.get(bytes)
+                                val message = String(bytes)
+                                try {
+                                    handleControlAction(JSONObject(message))
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Error parsing DataChannel action", e)
                                 }
-                                socket?.emit("signal-answer", answerData)
                             }
-                        }, answerDesc)
-                    }
-                }, MediaConstraints())
+                        }
+                    })
+                }
+                override fun onRenegotiationNeeded() {}
+                override fun onAddTrack(receiver: RtpReceiver?, streams: Array<out MediaStream>?) {}
+            })
+
+            // Add video track using Unified Plan
+            if (videoTrack != null && peerConnection != null) {
+                peerConnection?.addTrack(videoTrack, listOf("ARDAMS"))
             }
-        }, offerDesc)
+
+            // Set Remote Offer Description
+            val offerDesc = SessionDescription(SessionDescription.Type.OFFER, sdp)
+            peerConnection?.setRemoteDescription(object : SdpObserverAdapter() {
+                override fun onSetSuccess() {
+                    mainHandler.post {
+                        try {
+                            val constraints = MediaConstraints().apply {
+                                mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "false"))
+                                mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", "false"))
+                            }
+                            peerConnection?.createAnswer(object : SdpObserverAdapter() {
+                                override fun onCreateSuccess(answerDesc: SessionDescription?) {
+                                    if (answerDesc != null) {
+                                        mainHandler.post {
+                                            peerConnection?.setLocalDescription(object : SdpObserverAdapter() {
+                                                override fun onSetSuccess() {
+                                                    try {
+                                                        val answerData = JSONObject().apply {
+                                                            put("controllerId", controllerId)
+                                                            put("answer", JSONObject().apply {
+                                                                put("type", "answer")
+                                                                put("sdp", answerDesc.description)
+                                                            })
+                                                        }
+                                                        socket?.emit("signal-answer", answerData)
+                                                        Log.i(TAG, "Answer sent successfully to controller!")
+                                                    } catch (e: Exception) {
+                                                        Log.e(TAG, "Error sending answer", e)
+                                                    }
+                                                }
+                                            }, answerDesc)
+                                        }
+                                    }
+                                }
+                            }, constraints)
+                        } catch (t: Throwable) {
+                            Log.e(TAG, "Error in createAnswer", t)
+                        }
+                    }
+                }
+            }, offerDesc)
+        } catch (t: Throwable) {
+            Log.e(TAG, "Error in handleIncomingOffer", t)
+        }
     }
 
     /**
@@ -230,30 +301,38 @@ class WebRtcManager private constructor() {
         }
 
         mainHandler.post {
-            when (action.optString("type")) {
-                "tap" -> {
-                    val x = action.optDouble("x", 0.5).toFloat()
-                    val y = action.optDouble("y", 0.5).toFloat()
-                    service.performTap(x, y)
+            try {
+                when (action.optString("type")) {
+                    "tap" -> {
+                        val x = action.optDouble("x", 0.5).toFloat()
+                        val y = action.optDouble("y", 0.5).toFloat()
+                        service.performTap(x, y)
+                    }
+                    "swipe" -> {
+                        val startX = action.optDouble("startX", 0.5).toFloat()
+                        val startY = action.optDouble("startY", 0.5).toFloat()
+                        val endX = action.optDouble("endX", 0.5).toFloat()
+                        val endY = action.optDouble("endY", 0.5).toFloat()
+                        val duration = action.optLong("duration", 300)
+                        service.performSwipe(startX, startY, endX, endY, duration)
+                    }
+                    "key" -> {
+                        val key = action.optString("key", "")
+                        service.executeNavigationKey(key)
+                    }
                 }
-                "swipe" -> {
-                    val startX = action.optDouble("startX", 0.5).toFloat()
-                    val startY = action.optDouble("startY", 0.5).toFloat()
-                    val endX = action.optDouble("endX", 0.5).toFloat()
-                    val endY = action.optDouble("endY", 0.5).toFloat()
-                    val duration = action.optLong("duration", 300)
-                    service.performSwipe(startX, startY, endX, endY, duration)
-                }
-                "key" -> {
-                    val key = action.optString("key", "")
-                    service.executeNavigationKey(key)
-                }
+            } catch (t: Throwable) {
+                Log.e(TAG, "Error handling control action", t)
             }
         }
     }
 
     private fun closePeerConnection() {
-        peerConnection?.close()
+        try {
+            peerConnection?.close()
+        } catch (e: Exception) {
+            Log.w(TAG, "Error closing peer connection", e)
+        }
         peerConnection = null
     }
 
@@ -264,6 +343,13 @@ class WebRtcManager private constructor() {
             videoCapturer?.dispose()
         } catch (e: Exception) {
             Log.e(TAG, "Error disposing capturer", e)
+        }
+        try {
+            videoSource?.dispose()
+            peerConnectionFactory?.dispose()
+            eglBase?.release()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error releasing WebRTC resources", e)
         }
         socket?.disconnect()
         socket = null

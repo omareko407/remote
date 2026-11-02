@@ -21,7 +21,7 @@ class RemoteAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
-        Log.i(TAG, "Accessibility Service Connected and Ready for Remote Assistance.")
+        Log.i(TAG, "Professor Accessibility Service Connected and Ready.")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -92,16 +92,24 @@ class RemoteAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Executes standard system navigation actions
+     * Executes standard system navigation actions & smart shortcuts
      */
     fun executeNavigationKey(keyName: String) {
         when (keyName.uppercase()) {
             "BACK" -> performGlobalAction(GLOBAL_ACTION_BACK)
             "HOME" -> performGlobalAction(GLOBAL_ACTION_HOME)
             "RECENTS" -> performGlobalAction(GLOBAL_ACTION_RECENTS)
+            "NOTIFICATIONS" -> performGlobalAction(GLOBAL_ACTION_NOTIFICATIONS)
+            "QUICK_SETTINGS" -> performGlobalAction(GLOBAL_ACTION_QUICK_SETTINGS)
+            "POWER_DIALOG" -> performGlobalAction(GLOBAL_ACTION_POWER_DIALOG)
             "LOCK" -> {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)
+                }
+            }
+            "SCREENSHOT" -> {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    performGlobalAction(GLOBAL_ACTION_TAKE_SCREENSHOT)
                 }
             }
         }
