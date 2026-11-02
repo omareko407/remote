@@ -42,7 +42,7 @@ class ScreenCaptureService : Service() {
 
         if (action == ACTION_START) {
             val resultData: Intent? = intent.getParcelableExtra(EXTRA_RESULT_DATA)
-            val serverUrl = intent.getStringExtra(EXTRA_SERVER_URL) ?: "http://192.168.0.102:3000"
+            val serverUrl = intent.getStringExtra(EXTRA_SERVER_URL) ?: "http://192.168.0.107:3000"
             val deviceId = intent.getStringExtra(EXTRA_DEVICE_ID) ?: "PHONE-DEFAULT"
 
             val notification = buildNotification()

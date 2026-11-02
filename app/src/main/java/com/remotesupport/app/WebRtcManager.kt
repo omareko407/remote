@@ -166,10 +166,7 @@ class WebRtcManager private constructor() {
 
     private fun formatServerUrl(input: String?): String {
         var url = (input ?: "").trim()
-        if (url.isEmpty()) return "http://192.168.0.102:3000"
-        if (url.contains("192.168.0.107")) {
-            url = url.replace("192.168.0.107", "192.168.0.102")
-        }
+        if (url.isEmpty()) return "http://192.168.0.107:3000"
         if (!url.startsWith("http://") && !url.startsWith("https://")) {
             url = "http://$url"
         }

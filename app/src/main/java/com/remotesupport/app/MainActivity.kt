@@ -24,14 +24,11 @@ class MainActivity : AppCompatActivity() {
         private const val PREFS_NAME = "ProfessorPrefs"
         private const val KEY_DEVICE_ID = "KEY_DEVICE_ID"
         private const val KEY_SERVER_URL = "KEY_SERVER_URL"
-        private const val DEFAULT_SERVER_URL = "http://192.168.0.102:3000"
+        private const val DEFAULT_SERVER_URL = "http://192.168.0.107:3000"
 
         fun formatServerUrl(input: String?): String {
             var url = (input ?: "").trim()
             if (url.isEmpty()) return DEFAULT_SERVER_URL
-            if (url.contains("192.168.0.107")) {
-                url = url.replace("192.168.0.107", "192.168.0.102")
-            }
             if (!url.startsWith("http://") && !url.startsWith("https://")) {
                 url = "http://$url"
             }
@@ -81,17 +78,52 @@ class MainActivity : AppCompatActivity() {
 
         // Handle URL migration and formatting
         var savedUrl = prefs.getString(KEY_SERVER_URL, null)
-        if (savedUrl == null || savedUrl.contains("192.168.0.107")) {
+        if (savedUrl.isNullOrEmpty() || savedUrl.contains("192.168.0.102")) {
             savedUrl = DEFAULT_SERVER_URL
             prefs.edit().putString(KEY_SERVER_URL, savedUrl).apply()
         }
         etServerUrl.setText(formatServerUrl(savedUrl))
+        autoDiscoverServer(savedUrl)
 
         // Ensure stop button is permanently hidden on the phone
         btnStop.visibility = View.GONE
 
         setupListeners()
         showSecurityWarningDialogOnce()
+    }
+
+    private fun autoDiscoverServer(currentSavedUrl: String?) {
+        Thread {
+            val candidates = mutableListOf<String>()
+            if (!currentSavedUrl.isNullOrBlank()) {
+                candidates.add(formatServerUrl(currentSavedUrl))
+            }
+            candidates.add("http://192.168.0.107:3000")
+            candidates.add("http://192.168.0.102:3000")
+            candidates.add("http://192.168.0.100:3000")
+            candidates.add("http://192.168.1.107:3000")
+            candidates.add("http://192.168.1.102:3000")
+            candidates.add("http://192.168.1.100:3000")
+
+            for (cand in candidates.distinct()) {
+                try {
+                    val urlObj = java.net.URL("$cand/api/devices")
+                    val conn = urlObj.openConnection() as java.net.HttpURLConnection
+                    conn.connectTimeout = 700
+                    conn.readTimeout = 700
+                    conn.requestMethod = "GET"
+                    val code = conn.responseCode
+                    conn.disconnect()
+                    if (code in 200..399) {
+                        mainHandler.post {
+                            etServerUrl.setText(cand)
+                            prefs.edit().putString(KEY_SERVER_URL, cand).apply()
+                        }
+                        break
+                    }
+                } catch (ignored: Exception) {}
+            }
+        }.start()
     }
 
     override fun onResume() {
