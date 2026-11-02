@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">المساعد عن بُعد (Remote Support)</string>
-    <string name="accessibility_service_name">خدمة المساعدة والتحكم عن بُعد</string>
+    <string name="app_name">Professor</string>
+    <string name="accessibility_service_name">Professor Assistance Service</string>
     <string name="accessibility_service_description">تُستخدم هذه الخدمة حصرياً لتلقي أوامر اللمس والمساعدة الفنية عن بُعد بموافقتك الكاملة والصريحة، ولن يتم استخدامها إلا أثناء جلسة نشطة ومعلنة.</string>
     
     <!-- Security Warning Text -->

@@ -21,8 +21,10 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val REQUEST_MEDIA_PROJECTION = 101
-        private const val PREFS_NAME = "RemoteSupportPrefs"
+        private const val PREFS_NAME = "ProfessorPrefs"
         private const val KEY_DEVICE_ID = "KEY_DEVICE_ID"
+        private const val KEY_SERVER_URL = "KEY_SERVER_URL"
+        private const val DEFAULT_SERVER_URL = "http://192.168.0.107:3000"
     }
 
     private lateinit var tvDeviceId: TextView
@@ -55,6 +57,7 @@ class MainActivity : AppCompatActivity() {
         btnStop = findViewById(R.id.btnStop)
 
         tvDeviceId.text = deviceId
+        etServerUrl.setText(prefs.getString(KEY_SERVER_URL, DEFAULT_SERVER_URL))
 
         setupListeners()
         showSecurityWarningDialogOnce()
@@ -63,11 +66,12 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         updatePermissionStatus()
+        checkAutoConnect()
     }
 
     private fun initDeviceId() {
         deviceId = prefs.getString(KEY_DEVICE_ID, null) ?: run {
-            val randomId = "PHONE-" + UUID.randomUUID().toString().substring(0, 6).uppercase()
+            val randomId = "PROFESSOR-" + UUID.randomUUID().toString().substring(0, 6).uppercase()
             prefs.edit().putString(KEY_DEVICE_ID, randomId).apply()
             randomId
         }
@@ -78,7 +82,7 @@ class MainActivity : AppCompatActivity() {
         btnEnableAccessibility.setOnClickListener {
             val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
             startActivity(intent)
-            Toast.makeText(this, "يرجى البحث عن 'خدمة المساعدة والتحكم عن بُعد' وتفعيلها", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "ابحث عن 'Professor Assistance Service' وفعّلها", Toast.LENGTH_LONG).show()
         }
 
         // 2. Request MediaProjection
@@ -87,25 +91,9 @@ class MainActivity : AppCompatActivity() {
             startActivityForResult(mpManager.createScreenCaptureIntent(), REQUEST_MEDIA_PROJECTION)
         }
 
-        // 3. Start Remote Support Session
+        // 3. Start Session manually
         btnStart.setOnClickListener {
-            if (!RemoteAccessibilityService.isServiceRunning) {
-                Toast.makeText(this, "يرجى تفعيل إذن إمكانية الوصول أولاً للتحكم", Toast.LENGTH_LONG).show()
-                return@setOnClickListener
-            }
-
-            if (screenCaptureIntentData == null) {
-                Toast.makeText(this, "يرجى منح إذن تسجيل الشاشة أولاً", Toast.LENGTH_LONG).show()
-                return@setOnClickListener
-            }
-
-            val serverUrl = etServerUrl.text.toString().trim()
-            if (serverUrl.isEmpty()) {
-                Toast.makeText(this, "يرجى كتابة عنوان الخادم", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-
-            startScreenCaptureService(serverUrl)
+            startSessionIfReady()
         }
 
         // 4. Stop Session
@@ -114,37 +102,77 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun checkAutoConnect() {
+        // Auto-connect if both permissions are granted and not already streaming
+        if (RemoteAccessibilityService.isServiceRunning && screenCaptureIntentData != null && !ScreenCaptureService.isRunning) {
+            startSessionIfReady()
+        }
+    }
+
+    private fun startSessionIfReady() {
+        if (!RemoteAccessibilityService.isServiceRunning) {
+            Toast.makeText(this, "يرجى تفعيل إذن إمكانية الوصول أولاً للتحكم", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        if (screenCaptureIntentData == null) {
+            Toast.makeText(this, "يرجى منح إذن تسجيل الشاشة أولاً", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val serverUrl = etServerUrl.text.toString().trim()
+        if (serverUrl.isEmpty()) {
+            Toast.makeText(this, "يرجى كتابة عنوان الخادم", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        // Save server URL for future auto-connects
+        prefs.edit().putString(KEY_SERVER_URL, serverUrl).apply()
+
+        startScreenCaptureService(serverUrl)
+    }
+
     private fun startScreenCaptureService(serverUrl: String) {
-        val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
-            action = ScreenCaptureService.ACTION_START
-            putExtra(ScreenCaptureService.EXTRA_RESULT_CODE, screenCaptureResultCode)
-            putExtra(ScreenCaptureService.EXTRA_RESULT_DATA, screenCaptureIntentData)
-            putExtra(ScreenCaptureService.EXTRA_SERVER_URL, serverUrl)
-            putExtra(ScreenCaptureService.EXTRA_DEVICE_ID, deviceId)
-        }
+        try {
+            val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
+                action = ScreenCaptureService.ACTION_START
+                putExtra(ScreenCaptureService.EXTRA_RESULT_CODE, screenCaptureResultCode)
+                putExtra(ScreenCaptureService.EXTRA_RESULT_DATA, screenCaptureIntentData)
+                putExtra(ScreenCaptureService.EXTRA_SERVER_URL, serverUrl)
+                putExtra(ScreenCaptureService.EXTRA_DEVICE_ID, deviceId)
+            }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(serviceIntent)
-        } else {
-            startService(serviceIntent)
-        }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(serviceIntent)
+            } else {
+                startService(serviceIntent)
+            }
 
-        btnStart.visibility = View.GONE
-        btnStop.visibility = View.VISIBLE
-        tvStatus.text = getString(R.string.status_streaming)
-        tvStatus.setTextColor(getColor(R.color.warning_border))
+            btnStart.visibility = View.GONE
+            btnStop.visibility = View.VISIBLE
+            tvStatus.text = getString(R.string.status_streaming)
+            tvStatus.setTextColor(getColor(R.color.warning_border))
+            Toast.makeText(this, "تم الاتصال بالخادم وبدء البث بنجاح 🟢", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "خطأ في بدء الخدمة: ${e.message}", Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun stopScreenCaptureService() {
-        val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
-            action = ScreenCaptureService.ACTION_STOP
-        }
-        startService(serviceIntent)
+        try {
+            val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
+                action = ScreenCaptureService.ACTION_STOP
+            }
+            startService(serviceIntent)
 
-        btnStart.visibility = View.VISIBLE
-        btnStop.visibility = View.GONE
-        tvStatus.text = getString(R.string.status_ready)
-        tvStatus.setTextColor(getColor(R.color.text_muted))
+            btnStart.visibility = View.VISIBLE
+            btnStop.visibility = View.GONE
+            tvStatus.text = getString(R.string.status_ready)
+            tvStatus.setTextColor(getColor(R.color.text_muted))
+            Toast.makeText(this, "تم قطع الاتصال بنجاح", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "خطأ: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -156,6 +184,7 @@ class MainActivity : AppCompatActivity() {
                 btnGrantScreen.text = getString(R.string.perm_granted)
                 btnGrantScreen.setBackgroundColor(getColor(R.color.success))
                 Toast.makeText(this, "تم منح إذن مشاركة الشاشة بنجاح", Toast.LENGTH_SHORT).show()
+                checkAutoConnect()
             } else {
                 Toast.makeText(this, "تم رفض إذن مشاركة الشاشة", Toast.LENGTH_SHORT).show()
             }
@@ -183,7 +212,7 @@ class MainActivity : AppCompatActivity() {
         if (!hasSeenWarning) {
             AlertDialog.Builder(this)
                 .setTitle("⚠️ تحذير أمني وموافقة صريحة")
-                .setMessage("هذا التطبيق مخصص للدعم الفني عن بُعد. عند بدء الجلسة، سيتمكن الطرف الآخر من مشاهدة شاشتك والتحكم في هاتفك.\n\nهل توافق على استخدام هذا التطبيق لأغراض الدعم الفني فقط؟")
+                .setMessage("تطبيق Professor مخصص للدعم الفني عن بُعد. عند بدء الجلسة، سيتمكن الطرف الآخر من مشاهدة شاشتك والتحكم في هاتفك.\n\nهل توافق على استخدام هذا التطبيق لأغراض الدعم الفني فقط؟")
                 .setPositiveButton("موافق وأفهم ذلك") { dialog, _ ->
                     prefs.edit().putBoolean("has_seen_security_warning", true).apply()
                     dialog.dismiss()
