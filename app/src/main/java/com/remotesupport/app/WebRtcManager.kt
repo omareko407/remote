@@ -27,6 +27,7 @@ class WebRtcManager private constructor() {
     private var videoSource: VideoSource? = null
     private var audioDeviceModule: org.webrtc.audio.AudioDeviceModule? = null
     private var eglBase: EglBase? = null
+    private var appContext: Context? = null
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -36,9 +37,15 @@ class WebRtcManager private constructor() {
         serverUrl: String,
         deviceId: String
     ) {
+        appContext = context.applicationContext
         mainHandler.post {
             try {
                 Log.i(TAG, "Initializing WebRTC & Audio connecting to $serverUrl")
+
+                // Configure Speakerphone Routing for Voice
+                val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+                audioManager?.mode = android.media.AudioManager.MODE_IN_COMMUNICATION
+                audioManager?.isSpeakerphoneOn = true
 
                 // 1. Initialize PeerConnectionFactory
                 PeerConnectionFactory.initialize(
@@ -245,8 +252,26 @@ class WebRtcManager private constructor() {
                     })
                 }
                 override fun onRenegotiationNeeded() {}
-                override fun onAddTrack(receiver: RtpReceiver?, streams: Array<out MediaStream>?) {}
+                override fun onAddTrack(receiver: RtpReceiver?, streams: Array<out MediaStream>?) {
+                    val track = receiver?.track()
+                    Log.i(TAG, "WebRTC onAddTrack received: ${track?.kind()}, id=${track?.id()}")
+                    if (track is AudioTrack) {
+                        track.setEnabled(true)
+                        track.setVolume(1.0)
+                        Log.i(TAG, "AudioTrack enabled and volume set to 1.0 on speakerphone!")
+                    }
+                }
             })
+
+            // Ensure Audio Transceiver is present to receive audio from controller
+            try {
+                peerConnection?.addTransceiver(
+                    MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO,
+                    RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.RECV_ONLY)
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not add audio transceiver", e)
+            }
 
             // Add video track using Unified Plan
             if (videoTrack != null && peerConnection != null) {
