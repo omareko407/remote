@@ -25,7 +25,7 @@ class WebRtcManager private constructor() {
     private var videoCapturer: VideoCapturer? = null
     private var videoTrack: VideoTrack? = null
     private var videoSource: VideoSource? = null
-    private var audioDeviceModule: JavaAudioDeviceModule? = null
+    private var audioDeviceModule: org.webrtc.audio.AudioDeviceModule? = null
     private var eglBase: EglBase? = null
 
     private val mainHandler = Handler(Looper.getMainLooper())
