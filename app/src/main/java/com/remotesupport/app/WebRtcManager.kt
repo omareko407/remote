@@ -10,6 +10,7 @@ import io.socket.client.IO
 import io.socket.client.Socket
 import org.json.JSONObject
 import org.webrtc.*
+import org.webrtc.audio.JavaAudioDeviceModule
 
 class WebRtcManager private constructor() {
 
@@ -24,6 +25,7 @@ class WebRtcManager private constructor() {
     private var videoCapturer: VideoCapturer? = null
     private var videoTrack: VideoTrack? = null
     private var videoSource: VideoSource? = null
+    private var audioDeviceModule: JavaAudioDeviceModule? = null
     private var eglBase: EglBase? = null
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -36,7 +38,7 @@ class WebRtcManager private constructor() {
     ) {
         mainHandler.post {
             try {
-                Log.i(TAG, "Initializing WebRTC & Socket.IO connecting to $serverUrl")
+                Log.i(TAG, "Initializing WebRTC & Audio connecting to $serverUrl")
 
                 // 1. Initialize PeerConnectionFactory
                 PeerConnectionFactory.initialize(
@@ -49,7 +51,14 @@ class WebRtcManager private constructor() {
                 val defaultVideoEncoderFactory = DefaultVideoEncoderFactory(eglBase!!.eglBaseContext, true, true)
                 val defaultVideoDecoderFactory = DefaultVideoDecoderFactory(eglBase!!.eglBaseContext)
 
+                // Setup Audio Device Module for Voice from PC to Mobile Speaker
+                audioDeviceModule = JavaAudioDeviceModule.builder(context)
+                    .setUseHardwareAcousticEchoCanceler(true)
+                    .setUseHardwareNoiseSuppressor(true)
+                    .createAudioDeviceModule()
+
                 peerConnectionFactory = PeerConnectionFactory.builder()
+                    .setAudioDeviceModule(audioDeviceModule)
                     .setVideoEncoderFactory(defaultVideoEncoderFactory)
                     .setVideoDecoderFactory(defaultVideoDecoderFactory)
                     .createPeerConnectionFactory()
@@ -153,7 +162,7 @@ class WebRtcManager private constructor() {
             }
         }
 
-        // Receive Remote Control Actions (Tap, Swipe, Keys)
+        // Receive Remote Control Actions (Tap, Swipe, Keys, Text)
         socket?.on("remote-control-action") { args ->
             mainHandler.post {
                 try {
@@ -250,8 +259,9 @@ class WebRtcManager private constructor() {
                 override fun onSetSuccess() {
                     mainHandler.post {
                         try {
+                            // Enable incoming audio from PC so the controller's voice plays on the phone
                             val constraints = MediaConstraints().apply {
-                                mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "false"))
+                                mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "true"))
                                 mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", "false"))
                             }
                             peerConnection?.createAnswer(object : SdpObserverAdapter() {
@@ -291,7 +301,7 @@ class WebRtcManager private constructor() {
     }
 
     /**
-     * Executes Touch and Navigation gestures on device UI
+     * Executes Touch, Navigation, and Text gestures on device UI
      */
     private fun handleControlAction(action: JSONObject) {
         val service = RemoteAccessibilityService.instance
@@ -320,6 +330,12 @@ class WebRtcManager private constructor() {
                         val key = action.optString("key", "")
                         service.executeNavigationKey(key)
                     }
+                    "text" -> {
+                        val text = action.optString("text", "")
+                        if (text.isNotEmpty()) {
+                            service.insertOrCopyText(text)
+                        }
+                    }
                 }
             } catch (t: Throwable) {
                 Log.e(TAG, "Error handling control action", t)
@@ -347,6 +363,7 @@ class WebRtcManager private constructor() {
         try {
             videoSource?.dispose()
             peerConnectionFactory?.dispose()
+            audioDeviceModule?.release()
             eglBase?.release()
         } catch (e: Exception) {
             Log.e(TAG, "Error releasing WebRTC resources", e)

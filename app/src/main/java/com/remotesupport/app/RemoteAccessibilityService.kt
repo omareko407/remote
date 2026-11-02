@@ -2,10 +2,18 @@ package com.remotesupport.app
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.graphics.Path
 import android.os.Build
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
+import android.widget.Toast
 
 class RemoteAccessibilityService : AccessibilityService() {
 
@@ -18,6 +26,8 @@ class RemoteAccessibilityService : AccessibilityService() {
             get() = instance != null
     }
 
+    private val mainHandler = Handler(Looper.getMainLooper())
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
@@ -25,7 +35,7 @@ class RemoteAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // No event interception needed; only gesture dispatching
+        // No event interception needed
     }
 
     override fun onInterrupt() {
@@ -89,6 +99,38 @@ class RemoteAccessibilityService : AccessibilityService() {
         val gesture = GestureDescription.Builder().addStroke(stroke).build()
 
         dispatchGesture(gesture, null, null)
+    }
+
+    /**
+     * Pastes or types remote text into the focused field and copies to clipboard
+     */
+    fun insertOrCopyText(text: String) {
+        mainHandler.post {
+            try {
+                // 1. Copy to Android System Clipboard
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                val clip = ClipData.newPlainText("ProfessorRemoteText", text)
+                clipboard.setPrimaryClip(clip)
+
+                // 2. Try to type directly into the focused input field
+                val rootNode = rootInActiveWindow
+                val focusedNode = rootNode?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+                if (focusedNode != null) {
+                    val arguments = Bundle().apply {
+                        putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+                    }
+                    val typed = focusedNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
+                    if (!typed) {
+                        focusedNode.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+                    }
+                }
+
+                // 3. Show prominent popup notification on phone screen
+                Toast.makeText(applicationContext, "💬 تم استلام نص من الكمبيوتر:\n$text", Toast.LENGTH_LONG).show()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error inserting remote text", e)
+            }
+        }
     }
 
     /**
