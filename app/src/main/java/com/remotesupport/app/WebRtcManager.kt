@@ -115,16 +115,44 @@ class WebRtcManager private constructor() {
                 videoSource = peerConnectionFactory!!.createVideoSource(videoCapturer!!.isScreencast)
                 videoCapturer!!.initialize(surfaceTextureHelper, context, videoSource!!.capturerObserver)
 
-                // Calculate screen dimensions (even numbers)
+                // Calculate screen dimensions (even numbers, supporting both portrait and landscape)
                 val displayMetrics = context.resources.displayMetrics
                 var targetWidth = (displayMetrics.widthPixels / 2)
                 var targetHeight = (displayMetrics.heightPixels / 2)
                 if (targetWidth % 2 != 0) targetWidth -= 1
                 if (targetHeight % 2 != 0) targetHeight -= 1
-                targetWidth = targetWidth.coerceIn(360, 1080)
-                targetHeight = targetHeight.coerceIn(640, 2400)
+                targetWidth = targetWidth.coerceIn(360, 1920)
+                targetHeight = targetHeight.coerceIn(360, 1920)
 
                 videoCapturer!!.startCapture(targetWidth, targetHeight, 30)
+
+                // Dynamically adapt screen capture resolution on orientation change (portrait <-> landscape)
+                try {
+                    val orientationListener = object : android.view.OrientationEventListener(context) {
+                        private var lastIsLandscape = (displayMetrics.widthPixels > displayMetrics.heightPixels)
+                        override fun onOrientationChanged(orientation: Int) {
+                            if (orientation == ORIENTATION_UNKNOWN) return
+                            val dm = context.resources.displayMetrics
+                            val isLandscape = dm.widthPixels > dm.heightPixels
+                            if (isLandscape != lastIsLandscape) {
+                                lastIsLandscape = isLandscape
+                                var w = dm.widthPixels / 2
+                                var h = dm.heightPixels / 2
+                                if (w % 2 != 0) w -= 1
+                                if (h % 2 != 0) h -= 1
+                                w = w.coerceIn(360, 1920)
+                                h = h.coerceIn(360, 1920)
+                                Log.i(TAG, "Adapting video capture format to ${w}x${h} (Landscape: $isLandscape)")
+                                videoCapturer?.changeCaptureFormat(w, h, 30)
+                            }
+                        }
+                    }
+                    if (orientationListener.canDetectOrientation()) {
+                        orientationListener.enable()
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Could not enable OrientationEventListener", e)
+                }
 
                 videoTrack = peerConnectionFactory!!.createVideoTrack("ARDAMSv0", videoSource)
 
