@@ -228,10 +228,23 @@ class WebRtcManager private constructor() {
                     if (args.isNotEmpty()) {
                         val data = args[0] as JSONObject
                         val controllerId = data.getString("controllerId")
-                        val offerObj = data.getJSONObject("offer")
-                        val sdp = offerObj.getString("sdp")
+                        val sdp = when {
+                            data.has("offer") -> {
+                                val obj = data.get("offer")
+                                if (obj is JSONObject) obj.optString("sdp", "") else obj.toString()
+                            }
+                            data.has("sdp") -> {
+                                val obj = data.get("sdp")
+                                if (obj is JSONObject) obj.optString("sdp", "") else obj.toString()
+                            }
+                            else -> ""
+                        }
 
-                        handleIncomingOffer(controllerId, sdp)
+                        if (sdp.isNotEmpty()) {
+                            handleIncomingOffer(controllerId, sdp)
+                        } else {
+                            Log.w(TAG, "Received offer with empty SDP: $data")
+                        }
                     }
                 } catch (t: Throwable) {
                     Log.e(TAG, "Error handling signal-offer", t)
@@ -270,6 +283,33 @@ class WebRtcManager private constructor() {
                 } catch (t: Throwable) {
                     Log.e(TAG, "Error parsing control action", t)
                 }
+            }
+        }
+
+        // Fullscreen Client Notice Display
+        socket?.on("client-notice-show") { args ->
+            mainHandler.post {
+                try {
+                    if (args.isNotEmpty()) {
+                        val data = args[0] as JSONObject
+                        val title = data.optString("title", "تنبيه الدعم الفني")
+                        val message = data.optString("message", "")
+                        val durationSec = data.optInt("durationSec", 0)
+                        appContext?.let { ctx ->
+                            FullScreenNoticeActivity.showNotice(ctx, title, message, durationSec)
+                        }
+                    }
+                } catch (t: Throwable) {
+                    Log.e(TAG, "Error showing client notice", t)
+                }
+            }
+        }
+
+        // Fullscreen Client Notice Dismiss (early cancellation by operator)
+        socket?.on("client-notice-dismiss") {
+            mainHandler.post {
+                Log.i(TAG, "Dismiss notice requested by controller")
+                FullScreenNoticeActivity.dismissNotice()
             }
         }
 
@@ -456,12 +496,12 @@ class WebRtcManager private constructor() {
         mainHandler.post {
             try {
                 when (type) {
-                    "tap" -> {
+                    "tap", "click", "POINTER_DOWN" -> {
                         val x = action.optDouble("x", 0.5).toFloat()
                         val y = action.optDouble("y", 0.5).toFloat()
                         service.performTap(x, y)
                     }
-                    "swipe" -> {
+                    "swipe", "drag" -> {
                         val startX = action.optDouble("startX", 0.5).toFloat()
                         val startY = action.optDouble("startY", 0.5).toFloat()
                         val endX = action.optDouble("endX", 0.5).toFloat()
@@ -469,7 +509,7 @@ class WebRtcManager private constructor() {
                         val duration = action.optLong("duration", 300)
                         service.performSwipe(startX, startY, endX, endY, duration)
                     }
-                    "key" -> {
+                    "key", "HARDWARE_KEY" -> {
                         val key = action.optString("key", "")
                         service.executeNavigationKey(key)
                     }

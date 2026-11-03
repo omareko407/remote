@@ -57,6 +57,7 @@ class MainActivity : AppCompatActivity() {
     private var screenCaptureResultCode: Int = Activity.RESULT_CANCELED
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private var hasRequestedCaptureThisResume = false
+    private var isServiceStarting = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -130,8 +131,8 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         hasRequestedCaptureThisResume = false
 
-        // If the service is already running, minimize immediately to save battery & screen
-        if (ScreenCaptureService.isRunning) {
+        // If the service is already running or starting, minimize immediately to save battery & screen
+        if (isServiceStarting || ScreenCaptureService.isRunning) {
             moveTaskToBack(true)
             return
         }
@@ -184,6 +185,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun autoProgressSession() {
+        if (isServiceStarting || ScreenCaptureService.isRunning) return
+
         // If accessibility is enabled but screen projection is not yet granted, auto-prompt projection dialog
         if (RemoteAccessibilityService.isServiceRunning && screenCaptureIntentData == null && !hasRequestedCaptureThisResume) {
             hasRequestedCaptureThisResume = true
@@ -194,10 +197,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startSessionIfReady() {
+        if (isServiceStarting || ScreenCaptureService.isRunning) return
+
         if (screenCaptureIntentData == null) {
             requestScreenCapture()
             return
         }
+
+        isServiceStarting = true
 
         if (!RemoteAccessibilityService.isServiceRunning) {
             Toast.makeText(this, "تنبيه: تحكم اللمس غير مفعل، سيعمل بث الشاشة فقط", Toast.LENGTH_SHORT).show()

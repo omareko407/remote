@@ -169,9 +169,8 @@ class RemoteAccessibilityService : AccessibilityService() {
             "NOTIFICATIONS" -> performGlobalAction(GLOBAL_ACTION_NOTIFICATIONS)
             "QUICK_SETTINGS" -> performGlobalAction(GLOBAL_ACTION_QUICK_SETTINGS)
             "POWER_DIALOG" -> performGlobalAction(GLOBAL_ACTION_POWER_DIALOG)
-            "WAKE" -> wakeUpAndUnlock()
-            "UNLOCK" -> wakeUpAndUnlock()
-            "LOCK" -> {
+            "WAKE", "UNLOCK", "WAKE_UNLOCK" -> wakeUpAndUnlock()
+            "LOCK", "LOCK_SCREEN" -> {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)
                 }
@@ -179,6 +178,48 @@ class RemoteAccessibilityService : AccessibilityService() {
             "SCREENSHOT" -> {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     performGlobalAction(GLOBAL_ACTION_TAKE_SCREENSHOT)
+                }
+            }
+            "VOLUME_UP" -> {
+                val am = getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+                am?.adjustVolume(android.media.AudioManager.ADJUST_RAISE, android.media.AudioManager.FLAG_SHOW_UI)
+            }
+            "VOLUME_DOWN" -> {
+                val am = getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+                am?.adjustVolume(android.media.AudioManager.ADJUST_LOWER, android.media.AudioManager.FLAG_SHOW_UI)
+            }
+            "VOLUME_MUTE" -> {
+                val am = getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+                am?.adjustVolume(android.media.AudioManager.ADJUST_TOGGLE_MUTE, android.media.AudioManager.FLAG_SHOW_UI)
+            }
+            "OPEN_SETTINGS" -> {
+                try {
+                    val intent = Intent(android.provider.Settings.ACTION_SETTINGS).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    startActivity(intent)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error opening Settings", e)
+                }
+            }
+            "OPEN_WIFI" -> {
+                try {
+                    val intent = Intent(android.provider.Settings.ACTION_WIFI_SETTINGS).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    startActivity(intent)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error opening Wi-Fi Settings", e)
+                }
+            }
+            "OPEN_APPS" -> {
+                try {
+                    val intent = Intent(android.provider.Settings.ACTION_APPLICATION_SETTINGS).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    startActivity(intent)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error opening App Settings", e)
                 }
             }
         }

@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#050811"
+    android:keepScreenOn="true"
+    android:padding="24dp">
+
+    <!-- Center Card -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_centerInParent="true"
+        android:orientation="vertical"
+        android:gravity="center_horizontal"
+        android:background="#0D1527"
+        android:padding="28dp">
+
+        <!-- Shield / Support Icon -->
+        <ImageView
+            android:id="@+id/ivNoticeIcon"
+            android:layout_width="72dp"
+            android:layout_height="72dp"
+            android:src="@android:drawable/ic_dialog_info"
+            android:tint="#00E5FF"
+            android:layout_marginBottom="18dp" />
+
+        <!-- Title -->
+        <TextView
+            android:id="@+id/tvNoticeTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="تنبيه الدعم الفني"
+            android:textColor="#FFFFFF"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:layout_marginBottom="14dp" />
+
+        <!-- Divider Line -->
+        <View
+            android:layout_width="80dp"
+            android:layout_height="3dp"
+            android:background="#00E5FF"
+            android:layout_marginBottom="18dp" />
+
+        <!-- Message Body -->
+        <TextView
+            android:id="@+id/tvNoticeMessage"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="جاري فحص الهاتف عبر جلسة الدعم الفني، يرجى الانتظار..."
+            android:textColor="#CBD5E1"
+            android:textSize="17sp"
+            android:gravity="center"
+            android:lineSpacingExtra="4dp"
+            android:layout_marginBottom="22dp" />
+
+        <!-- Timer / Duration Badge -->
+        <TextView
+            android:id="@+id/tvNoticeTimer"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="#162238"
+            android:textColor="#38BDF8"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
+            android:text="الوقت المتبقي: 30 ثانية" />
+
+    </LinearLayout>
+
+    <!-- Footer System Info -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentBottom="true"
+        android:layout_centerHorizontal="true"
+        android:text="⚡ Professor Technical Support Assistance"
+        android:textColor="#475569"
+        android:textSize="12sp" />
+
+</RelativeLayout>
