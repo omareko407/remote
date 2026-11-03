@@ -22,7 +22,6 @@
             android:layout_width="72dp"
             android:layout_height="72dp"
             android:src="@android:drawable/ic_dialog_info"
-            android:tint="#00E5FF"
             android:layout_marginBottom="18dp" />
 
         <!-- Title -->
